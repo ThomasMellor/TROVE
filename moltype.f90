@@ -116,6 +116,31 @@ module moltype
 !END INTERFACE
 
   !
+  type basic_function
+      procedure(calc_func), pointer, nopass  :: func_pointer
+      real(ark) :: coeff
+      real :: inner_expon
+      real :: outer_expon
+   end type 
+          
+  type ragged_array_lvl_1
+      type(basic_function), allocatable :: func_set(:)
+      integer :: num_terms
+  end type ragged_array_lvl_1
+  
+  type ragged_array_lvl_2
+      type(ragged_array_lvl_1), allocatable :: mode_set(:)
+  end type ragged_array_lvl_2
+
+ 
+  abstract interface
+      subroutine calc_func(x, y)
+        implicit none
+        real, intent(in) :: x 
+        real, intent(inout) :: y
+      end subroutine 
+  end interface
+
   type MoleculeT
      !
      character(len=cl) :: moltype   ! Identifying the Molecule type (e.g. XY3)
@@ -146,11 +171,19 @@ module moltype
      integer(ik),pointer       :: pot_ind(:,:)  ! indexes with the powers for every expansion term
      integer(ik),pointer       :: ifit(:)       ! varying indexes to control fitting
      character(len=cl)         :: symmetry      ! molecular symmetry
-     !
+  
+     type(ragged_array_lvl_2), allocatable :: basic_function_list(:)
+     logical  :: basic_function_set = .false.
+     
+     
+
+!
      !procedure(MLtemplate_poten),pointer :: potenfunc => null ()
      !
   end type MoleculeT
-  !
+  
+
+!
   type xyT
       real(ark) :: val
   end type xyT
@@ -208,8 +241,8 @@ module moltype
      real(rk) :: intensity    = -1e0    ! threshold defining the output intensities
      real(rk) :: linestrength = -1e0    ! threshold defining the output linestrength
      real(rk) :: coeff        = -1e0    ! threshold defining the eigenfunction coefficients
+     real(rk) :: leading_coeff = 0.1
                                         ! taken into account in the matrix elements evaluation.
-    real(rk) :: leading_coeff = 0.1
   end type MLthresholdsT
 
   type MLIntensityT
@@ -2696,6 +2729,8 @@ module moltype
   return
   end subroutine ML_splint_quint
   !
+  
+
 end module moltype
   
   
