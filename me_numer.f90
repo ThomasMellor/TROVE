@@ -84,7 +84,7 @@ module me_numer
    integer(ik),intent(in) :: icoord ! coordinate number for which the numerov is employed
    integer(ik),intent(in) :: verbose_   ! Verbosity level
    !
-   real(ark)            :: rho,cross_prod,factor
+   real(ark)            :: rho 
    real(ark)            :: h_t,sigma,sigma_t,rms,psipsi_t,characvalue,rhostep_,step_scale,fval,df_t
    !
    integer(ik) :: vl,vr,lambda,alloc,i,rec_len,k,i_,i1,i2
@@ -93,7 +93,6 @@ module me_numer
    real(ark),allocatable :: f(:),poten(:),mu_rr(:),d2fdr2(:),dfdr(:),rho_(:),xton(:,:)
    character(len=cl)     :: unitfname 
    real(ark),allocatable :: enerslot(:),enerslot_(:)
-   real(ark),allocatable :: psi(:,:),dpsi(:,:)
     !
     if (verbose>=1) write (out,"(/'Numerov matrix elements calculations')")
      !
@@ -120,9 +119,6 @@ module me_numer
        write (out,"('phi - out of memory')")
        stop 'phi - out of memory'
      endif 
-     !
-     enerslot = 0 
-     characvalue = 50000.0
      !
      ! numerov step size 
      rhostep = (rho_b(2)-rho_b(1))/real(npoints,kind=ark)
@@ -230,9 +226,7 @@ module me_numer
      !
      if (iperiod/=0) vmax = vmax/2
      !
-     if ( trim(molec%IO_primitive)/='READ') then
-       call numerov(npoints,npoints_,step_scale,poten,mu_rr,f,enerslot)
-     endif
+     call numerov(npoints,npoints_,step_scale,poten,mu_rr,f,enerslot)
      !
      if (iperiod/=0) then
        allocate(enerslot_(0:maxslots),stat=alloc)
@@ -240,13 +234,10 @@ module me_numer
          write (out,"('phi - out of memory')")
          stop 'phi - out of memory'
        endif 
-       enerslot_ =0
        ! 
        iparity = 1
        !
-       if ( trim(molec%IO_primitive)/='READ') then
-          call numerov(npoints,npoints_,step_scale,poten,mu_rr,f,enerslot_)
-       endif
+       call numerov(npoints,npoints_,step_scale,poten,mu_rr,f,enerslot_)
        !
        do vl = vmax,0,-1
          !
@@ -261,61 +252,12 @@ module me_numer
        !
      endif
      !
-     ! renormalising-re-orthogonalasing the basis set 
-     !
-     allocate(psi(0:npoints_,0:vmax),dpsi(0:npoints_,0:vmax),stat=alloc)
-     if (alloc/=0) then 
-       write (out,"('psi - out of memory')")
-       stop 'psi - out of memory'
-     endif 
-     !
-     do vl = 0,vmax
-       !
-       read (io_slot,rec=vl+1) (psi(i,vl),i=0,npoints_),(dpsi(i,vl),i=0,npoints_)
-       !
-     enddo
-     !
-     !omp parallel do private(vl,cross_prod,factor,vr) shared(psi,dpsi) schedule(dynamic)
-     do vl =  0,vmax
-       !
-       phivphi(:) = psi(:,vl)*psi(:,vl)
-       cross_prod = integral_rect_ark(npoints_,rho_b(2)-rho_b(1),phivphi)
-       !
-       factor = 1.0_ark/sqrt(cross_prod)
-       !
-       psi(:,vl) = psi(:,vl)*factor
-       dpsi(:,vl) = dpsi(:,vl)*factor
-       !
-       do vr = 0,vl-1
-         !
-         phivphi(:) = psi(:,vl)*psi(:,vr)
-         cross_prod = integral_rect_ark(npoints_,rho_b(2)-rho_b(1),phivphi)
-         !
-         psi(:,vl) = psi(:,vl)-cross_prod*psi(:,vr)
-         dpsi(:,vl) = dpsi(:,vl)-cross_prod*dpsi(:,vr)
-         !
-         phivphi(:) = psi(:,vl)*psi(:,vl)
-         cross_prod = integral_rect_ark(npoints_,rho_b(2)-rho_b(1),phivphi)
-         !
-         factor = 1.0_ark/sqrt(cross_prod)
-         !
-         psi(:,vl) = psi(:,vl)*factor
-         dpsi(:,vl) = dpsi(:,vl)*factor
-         ! 
-       enddo
-       !
-       write (io_slot,rec=vl+1) (psi(i,vl),i=0,npoints_),(dpsi(i,vl),i=0,npoints_)
-       !
-     enddo
-     !omp end parallel do
-     !
-     deallocate(psi,dpsi)
-     !
      ! Matrix elements 
      !
      sigma = 0.0_ark 
      rms   = 0.0_ark 
-     characvalue = max(maxval(enerslot(0:vmax)),characvalue)
+     characvalue = maxval(enerslot(0:vmax))
+     energy(0:vmax) = enerslot(0:vmax)-enerslot(0)
      !
      do vl = 0,vmax
         !
@@ -338,13 +280,13 @@ module me_numer
             !
             phivphi(:) = phil(:)*poten_(:)*phir(:)
             !
-            h_t = integral_rect_ark(npoints_,rho_b(2)-rho_b(1),phivphi)
+            h_t = simpsonintegral_ark(npoints_,rho_b(2)-rho_b(1),phivphi)
             !
             ! momenta-quadratic part 
             !
             phivphi(:) =-dphil(:)*mu_rr_(:)*dphir(:)
             !
-            psipsi_t = integral_rect_ark(npoints_,rho_b(2)-rho_b(1),phivphi)
+            psipsi_t = simpsonintegral_ark(npoints_,rho_b(2)-rho_b(1),phivphi)
             !
             ! Add the diagonal kinetic part to the tested mat. elem-s
             !
@@ -362,7 +304,7 @@ module me_numer
                   phivphi(:) = phil(:)*rho_poten(:)**lambda*phir(:)
                endif
                !
-               g_numerov(0,lambda,vl,vr) = integral_rect_ark(npoints_,rho_b(2)-rho_b(1),phivphi)
+               g_numerov(0,lambda,vl,vr) = simpsonintegral_ark(npoints_,rho_b(2)-rho_b(1),phivphi)
                !
                ! external field expansion
                !
@@ -372,7 +314,7 @@ module me_numer
                   phivphi(:) = phil(:)*rho_extF(:)**lambda*phir(:)
                endif
                !
-               g_numerov(3,lambda,vl,vr) = integral_rect_ark(npoints_,rho_b(2)-rho_b(1),phivphi)
+               g_numerov(3,lambda,vl,vr) = simpsonintegral_ark(npoints_,rho_b(2)-rho_b(1),phivphi)
                if (vl/=vr) g_numerov(3,lambda,vr,vl) = g_numerov(3,lambda,vl,vr)
                !
                ! momenta-free in kinetic part 
@@ -385,7 +327,7 @@ module me_numer
                !
                phivphi(:) = phil(:)*xton(:,lambda)*phir(:)
                !
-               g_numerov(-1,lambda,vl,vr) = integral_rect_ark(npoints_,rho_b(2)-rho_b(1),phivphi)
+               g_numerov(-1,lambda,vl,vr) = simpsonintegral_ark(npoints_,rho_b(2)-rho_b(1),phivphi)
                !
                ! We also control the orthogonality of the basis set 
                !
@@ -403,7 +345,7 @@ module me_numer
                !
                phivphi(:) =-dphil(:)*xton(:,lambda)*dphir(:)
                !
-               g_numerov(2,lambda,vl,vr) = integral_rect_ark(npoints_,rho_b(2)-rho_b(1),phivphi)
+               g_numerov(2,lambda,vl,vr) = simpsonintegral_ark(npoints_,rho_b(2)-rho_b(1),phivphi)
                !
                if (vl/=vr) g_numerov(2,lambda,vr,vl) = g_numerov(2,lambda,vl,vr)
                !
@@ -419,7 +361,7 @@ module me_numer
                !
                phivphi(:) = phil(:)*xton(:,lambda)*dphir(:)
                !
-               g_numerov(1,lambda,vl,vr) = integral_rect_ark(npoints_,rho_b(2)-rho_b(1),phivphi)
+               g_numerov(1,lambda,vl,vr) = simpsonintegral_ark(npoints_,rho_b(2)-rho_b(1),phivphi)
                !
                if (vl/=vr) then
                   !
@@ -431,16 +373,9 @@ module me_numer
                   !
                   phivphi(:) = dphil(:)*xton(:,lambda)*phir(:)
                   !
-                  g_numerov(1,lambda,vr,vl) = integral_rect_ark(npoints_,rho_b(2)-rho_b(1),phivphi)
+                  g_numerov(1,lambda,vr,vl) = simpsonintegral_ark(npoints_,rho_b(2)-rho_b(1),phivphi)
                   !
                endif 
-               !
-               if(trim(extF%ftype)=='XY2_G-COR-ELEC'.or.trim(extF%ftype)=='XY2_G-TENS-RANK3') then
-                  !
-                  g_numerov(3,lambda,vl,vr) = g_numerov(1,lambda,vl,vr)
-                  g_numerov(3,lambda,vr,vl) = g_numerov(1,lambda,vr,vl)
-                  !
-               endif               
                !
                !
                if (verbose>=7) then 
@@ -461,10 +396,7 @@ module me_numer
             ! Count the error, as a maximal deviation sigma =  | <i|H|j>-E delta_ij |
             !
             sigma_t =  abs(h_t)
-            if (vl==vr) then 
-              enerslot(vl) = h_t
-              sigma_t =  abs(h_t-enerslot(vl))
-            endif
+            if (vl==vr) sigma_t =  abs(h_t-enerslot(vl))
             !
             sigma = max(sigma,sigma_t)
             rms = rms + sigma_t**2
@@ -472,16 +404,12 @@ module me_numer
             ! Now we test the h_t = <vl|h|vr> matrix elements and check if Numerov cracked
             ! the Schroedinger all right
             if (vl/=vr.and.abs(h_t)>sqrt(small_)*abs(characvalue)*1e4) then 
-               write(out,"('ME_numerov: Integration differs from Numerovs solution for <',i4,'|H|',i4,'> = ',f20.10)") vl,vr,h_t
-               write(out,"('            Try increasing the integration range.')")
-               if ( trim(molec%IO_primitive)/='READ') then
-                 stop 'ME_numerov: bad Numerov solution'
-               endif
+               write(out,"('ME_numerov: wrong Numerovs solution for <',i4,'|H|',i4,'> = ',f20.10)") vl,vr,h_t
+               stop 'ME_numerov: bad Numerov solution'
             endif 
             !
             if (vl==vr.and.abs(h_t-enerslot(vl))>sqrt(small_)*abs(characvalue)*1e4) then 
                write(out,"('ME_numerov: wrong <',i4,'|H|',i4,'> (',f16.6,') =/= energy (',f16.6,')')") vl,vr,h_t,enerslot(vl)
-               write(out,"('            Try increasing the integration range.')")
                stop 'ME_numerov: bad Numerov solution'
             endif 
             !
@@ -499,8 +427,6 @@ module me_numer
             !
         enddo
      enddo
-     !
-     energy(0:vmax) = enerslot(0:vmax)-enerslot(0)
      !
      rms = sqrt(rms/real((vmax+1)*(vmax+2)/2,kind=ark))
      !
@@ -1761,7 +1687,7 @@ module me_numer
     !
     real(ark),intent(in) :: xmax,f(0:npoints)
     !
-    real(ark) :: si,st
+    real(ark) :: si
     !
     integer(ik) :: i
     !
@@ -1773,11 +1699,7 @@ module me_numer
      !
      si = sum(f)*h
      !
-     !st  = simpsonintegral_ark(npoints,xmax,f)
-     !
-     !if (abs(si-st)>0.1) then 
-     !   continue
-     !endif
+     !si  = simpsonintegral_ark(npoints,xmax,f)
      !
   end function  integral_rect_ark
 

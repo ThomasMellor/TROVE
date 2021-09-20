@@ -591,7 +591,7 @@ contains
 
        write(my_fmt_pot1,'(a,i0,a)') "(1h1,5x,a,a,a//4x,",ncoords,"(7x),a,7x,a,3x,a,3x,a/)"
 
-       write(my_fmt_pot2,'(a1,i0,a)') "(",ncoords,"(2x,f18.9),2(1x,g12.5),1x,f12.5,1x,e12.4)"
+       write(my_fmt_pot2,'(a1,i0,a)') "(",ncoords,"(2x,f18.9),3(x,g18.10),x,e12.4)"
        write(my_fmt_par1,'(a,i0,a)') "(a8,4x,",Ncoords,"i3,1x,i2,e22.14)"
        !
        nlevels = Neigenlevels
@@ -626,53 +626,9 @@ contains
             write (out,"('No varying paramters, check input!')") 
             stop 'sf_fitting: No varying paramters'
             !
-          endif
-          !
-          ! precompute drivatives of the potential energy funciton
+          endif 
           !
           rjacob = 0 
-          !
-          do_deriv = .false.
-          !
-          if (itmax.ge.1.and.fit_factor>1e-12.and.trim(deriv_type)=='hellman') do_deriv = .true.
-          !
-          if (do_deriv) then
-            !
-            do i = 1,parmax
-              !
-              if (ivar(i)<0) then 
-                pot_terms(i) = molec%force(i)
-              else
-                pot_terms(i) = 0
-              endif
-              !
-            enddo
-            !
-            dummy_xyz = 0 
-            !
-            do ncol=1,numpar 
-               !
-               i = ifitparam(ncol)
-               !
-               pot_terms(i) = 1.0_ark
-               !
-               !$omp parallel do private(ientry,ar_t,dummy_xyz) shared(rjacob) schedule(guided)
-               do ientry=1,pot_npts
-                 !
-                 ar_t = local(:,ientry)
-                 !
-                 call MLfromlocal2cartesian(1,ar_t,dummy_xyz)
-                 !
-                 rjacob(en_npts+ientry,ncol) =  MLpotentialfunc(ncoords,molec%natoms,ar_t,dummy_xyz,pot_terms)
-                 !
-               enddo
-               !$omp end parallel do
-               !
-               pot_terms(i) = 0
-               !
-            enddo ! --- ncol
-            !
-          endif     
           !
           ! The loop starts here. 
           !
@@ -772,7 +728,7 @@ contains
                      !
                      ! we can sckip the parameter if it is zero and not used in refinement for the sliced-representation
                      ! 
-                     if ( ivar(i)==0.and.abs(pot_terms(i))<small_.or.ivar(i)<0 ) cycle
+                     if (ivar(i)<=0.and.abs(pot_terms(i))<small_) cycle
                      !
                      call divided_slice_read(i,'potF',pot_suffix,Nentries,pot_matrix)
                      !
@@ -1215,32 +1171,22 @@ contains
             !
             call TimerStart('Potential energy points')
             !
-            !do_deriv = .false.
+            do_deriv = .false.
             !
-            !if (itmax.ge.1.and.fit_factor<1e12.and.trim(deriv_type)=='hellman') do_deriv = .true.
+            if (itmax.ge.1.and.fit_factor<1e12.and.trim(deriv_type)=='hellman'.and.mod(fititer+2,3)==0) do_deriv = .true.
             !
             dummy_xyz = 0
             !
-            !pot_terms(1:parmax) = molec%force(1:parmax) + potparam(1:parmax)
-            !
-            do i = 1,parmax
-              !
-              if (ivar(i)<0) then 
-                pot_terms(i) = molec%force(i)
-              else
-                pot_terms(i) = molec%force(i) + potparam(i)
-              endif
-              !
-            enddo
-            !
-            !$omp parallel do private(ientry,ar_t,dummy_xyz,v) shared(eps) schedule(guided)
             do ientry=1,pot_npts
               !
               ar_t = local(:,ientry)
               !
+              pot_terms(1:parmax) = molec%force(1:parmax) + potparam(1:parmax)
+              !
               call MLfromlocal2cartesian(1,ar_t,dummy_xyz)
               !
               v =  MLpotentialfunc(ncoords,molec%natoms,ar_t,dummy_xyz,pot_terms)
+              !
               !
               ! eps - epsilon = ab initio energies - calculated pot. energies,
               ! where we comntinue counting the fitting data points starting with en_npts - 
@@ -1253,8 +1199,46 @@ contains
               ! Calculate derivatives with respect to parameters 
               ! using the finite diff. method. 
               !
+              if (do_deriv) then
+                !
+                do i = 1,parmax
+                  !
+                  if (ivar(i)<0) then 
+                    pot_terms(i) = molec%force(i)
+                  else
+                    pot_terms(i) = 0
+                  endif
+                  !
+                enddo
+                !
+                !omp do private(ncol,i) schedule(guided)
+                do ncol=1,numpar 
+                   !
+                   i = ifitparam(ncol)
+                   !
+                   pot_terms(i) = 1.0_ark
+                   rjacob(en_npts+ientry,ncol) =  MLpotentialfunc(ncoords,molec%natoms,ar_t,dummy_xyz,pot_terms)
+                   pot_terms(i) = 0
+                   !
+                   !tempx=pot_terms(i)
+                   !deltax=1e-3*abs(tempx)
+                   !if (deltax<small_) deltax=1e-3
+                   !
+                   !pot_terms(i)=tempx+deltax
+                   !v_r =  MLpotentialfunc(ar_t,pot_terms)
+                   !
+                   !pot_terms(i)=tempx-deltax
+                   !v_l =  MLpotentialfunc(ar_t,pot_terms)
+                   !
+                   !pot_terms(i)=tempx
+                   !rjacob(en_npts+ientry,ncol)=(v_r-v_l)/(2.0_rk*deltax)
+                   !
+                enddo ! --- ncol
+                !omp end do
+                !
+              endif     
+              !
             enddo  ! ---  ientry
-            !$omp end parallel do
             !
             call TimerStop('Potential energy points')
             !
@@ -4262,9 +4246,8 @@ contains
      character(len=cl) :: unitfname,job_file
      !
      integer(ik)        :: chkptIO
-     character(len=cl)  :: job_is,filename,symchar,jchar,parchar,pot_suffix
+     character(len=cl)  :: job_is,filename,iostatus,symchar,jchar,parchar,pot_suffix
      !
-     character(len=cl)  :: iostatus = 'scratch'
      character(len=20)  :: buf20
      integer(ik)        :: ncontr_t,iterm,nelem,ielem,isrootI,irow,ib
      integer(ik)        :: rootsize_t,imu,imu_t,dimen,nsize,irec,cdimen_,idimen,j,iterm1,iterm2,ktau,icontr,k,itau
@@ -4953,7 +4936,7 @@ contains
    !
    filename = trim(suffix)//trim(adjustl(jchar))//'.chk'
    !
-   open(chkptIO,form='unformatted',action='read',position='rewind',status='old',file=filename,err=22)
+   open(chkptIO,form='unformatted',action='read',position='rewind',status='old',file=filename)
    !
    ilen = LEN_TRIM(name)
    !
@@ -4972,13 +4955,6 @@ contains
    end if
    !
    close(chkptIO)
-   !
-   return
-   !
-   22 write(out,"(a,a)") 'divided_slice_read error: file does not exist = ',filename
-      write(out,"(a)") 'If it is not supposed to exist (not used in fitting), consider setting pot. parameters and ifit to zero'
-      write(out,"(a)") 'For structural parameters ifit must be set to -1 to retain their values in the fitting to ab initio'
-      stop 'divided_slice_read error: file potfit_mat does not exist'
    !
  end subroutine divided_slice_read
 
