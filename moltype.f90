@@ -114,33 +114,32 @@ module moltype
 !        real,         intent(in)  :: a
 !    END function interface1
 !END INTERFACE
-
   !
   type basic_function
       procedure(calc_func), pointer, nopass  :: func_pointer
       real(ark) :: coeff
-      real :: inner_expon
-      real :: outer_expon
-   end type 
-          
+      real(ark) :: inner_expon
+      real(ark) :: outer_expon
+  end type 
+  !
   type ragged_array_lvl_1
       type(basic_function), allocatable :: func_set(:)
       integer :: num_terms
   end type ragged_array_lvl_1
-  
+  !
   type ragged_array_lvl_2
       type(ragged_array_lvl_1), allocatable :: mode_set(:)
   end type ragged_array_lvl_2
-
- 
+  !
   abstract interface
       subroutine calc_func(x, y)
+        use accuracy
         implicit none
-        real, intent(in) :: x 
-        real, intent(inout) :: y
+        real(ark) , intent(in) :: x 
+        real(ark) , intent(inout) :: y
       end subroutine 
   end interface
-
+  !
   type MoleculeT
      !
      character(len=cl) :: moltype   ! Identifying the Molecule type (e.g. XY3)
@@ -149,6 +148,7 @@ module moltype
      real(ark),pointer  :: alphaeq(:)
      real(ark),pointer  :: taueq(:)
      real(ark),pointer  :: local_eq(:)
+     real(ark),pointer  :: local_eq_transformed(:)
      real(ark),pointer  :: chi_eq(:)
      real(ark),pointer  :: specparam(:)
      real(ark)          :: rho_ref  
@@ -171,19 +171,15 @@ module moltype
      integer(ik),pointer       :: pot_ind(:,:)  ! indexes with the powers for every expansion term
      integer(ik),pointer       :: ifit(:)       ! varying indexes to control fitting
      character(len=cl)         :: symmetry      ! molecular symmetry
-  
-     type(ragged_array_lvl_2), allocatable :: basic_function_list(:)
-     logical  :: basic_function_set = .false.
-     
-     
-
-!
+     character(len=cl)         :: IO_primitive  ! control writing/reading of primitive basis sets 
+     character(len=cl)         :: chk_primitive_fname  ! filename to store primitive functions on a grid
+     !
      !procedure(MLtemplate_poten),pointer :: potenfunc => null ()
      !
+     type(ragged_array_lvl_2), allocatable :: basic_function_list(:)
+     logical  :: basic_function_set = .false.
   end type MoleculeT
-  
-
-!
+  !
   type xyT
       real(ark) :: val
   end type xyT
@@ -241,8 +237,8 @@ module moltype
      real(rk) :: intensity    = -1e0    ! threshold defining the output intensities
      real(rk) :: linestrength = -1e0    ! threshold defining the output linestrength
      real(rk) :: coeff        = -1e0    ! threshold defining the eigenfunction coefficients
-     real(rk) :: leading_coeff = 0.1
                                         ! taken into account in the matrix elements evaluation.
+    real(rk) :: leading_coeff = 0.1
   end type MLthresholdsT
 
   type MLIntensityT
@@ -272,6 +268,7 @@ module moltype
      character(cl)       :: swap = "NONE"    ! whether save the compacted vectors or read
      character(cl)       :: swap_file  ="compress"   ! where swap the compacted eigenvectors to
      integer(ik)         :: int_increm = 1e9 ! used to print out the lower energies needed to select int_increm intensities
+     integer(ik)         :: Ncache = 10000 ! used to cache intensities before prinout  to speed up 
      real(rk)         :: factor = 1.0d0   ! factor <1 to be applied the maxsize of the vector adn thus to be shrunk 
      real(rk)         :: wallclock          ! wallclock limit, needed to estmate how many transitions can be processed within one job
      logical          :: reduced            ! process intensity in a reduced symmetry adapted approach, only the (1,2) degenerate component
@@ -311,8 +308,9 @@ module moltype
 !
   subroutine MLinitialize_molec(Moltype,Coordinates,coords_transform,&
                                   Nbonds,Nangles,Ndihedrals,dihedtype_,&
-                                  AtomMasses,local_eq, &
+                                  AtomMasses,local_eq, local_eq_transformed, &
                                   force_,forcename_,ifit_,pot_ind_,specparam,potentype,kinetic_type,&
+                                  IO_primitive,chk_numerov_fname,&
                                   symmetry_,rho_border,zmatrix_)
 
 
@@ -323,6 +321,7 @@ module moltype
   integer(ik),   intent(in)  :: dihedtype_(0:Ndihedrals)
   real(ark),   intent(in)  :: AtomMasses(:)
   real(ark),   intent(in)  :: local_eq(:)
+  real(ark),   intent(in)  :: local_eq_transformed(:)  
   !
   real(ark),intent(in)         :: force_(:)
   integer(ik),intent(in)       :: ifit_(:)        ! indexes contrilloing fit
@@ -332,6 +331,7 @@ module moltype
   !
   character(len=cl),intent(in)  :: potentype,kinetic_type
   character(len=cl),intent(in)  :: symmetry_
+  character(len=cl),intent(in)  :: IO_primitive,chk_numerov_fname
   real(ark)                     :: rho_border(2)     ! rhomim, rhomax - borders
   type(MLZmatrixT),intent(in)   :: zmatrix_(:)       ! 
   !
@@ -361,7 +361,7 @@ module moltype
     end if
     !
     allocate (molec%coordinates(3,molec%Nmodes),molec%specparam(Ncoords),molec%AtomMasses(molec%Natoms),molec%req(Nbonds),&
-              molec%alphaeq(Nangles),molec%taueq(Ndihedrals),molec%local_eq(Ncoords),&
+              molec%alphaeq(Nangles),molec%taueq(Ndihedrals),molec%local_eq(Ncoords), molec%local_eq_transformed(Ncoords),&
               molec%dihedtype(0:Ndihedrals),stat=alloc)
     if (alloc/=0) then
        write (out,"(' Error ',i8,' allocating matixes for masses, reqs, or alphaeq-s ')") alloc
@@ -388,12 +388,15 @@ module moltype
     molec%taueq(1:Ndihedrals) = local_eq(Nbonds+Nangles+1:Ncoords)
     !
     molec%local_eq = local_eq
+    molec%local_eq_transformed = local_eq_transformed
     molec%potentype = potentype
     molec%kinetic_type = kinetic_type
     molec%atomMasses = AtomMasses
     molec%specparam = specparam
     molec%dihedtype = dihedtype_
     molec%symmetry = symmetry_
+    molec%IO_primitive = IO_primitive
+    molec%chk_primitive_fname = chk_numerov_fname
     !
     !molec%potenfunc => MLpoten_xy2_morbid
     !
@@ -1331,7 +1334,7 @@ module moltype
                                       + sin(alpha)*cos(phi)*n1(:) &
                                       - sin(alpha)*sin(phi)*n3(:) )
            !
-        case(-2,2,-202,202,-302,302,-402,402)
+        case(-2,2,-202,202,-302,302,-402,402,-502,502,-602,602)
            !
            idihedral = idihedral + 1
            !
@@ -2729,8 +2732,6 @@ module moltype
   return
   end subroutine ML_splint_quint
   !
-  
-
 end module moltype
   
   

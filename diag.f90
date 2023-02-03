@@ -5,7 +5,7 @@ module diag
 #define mpi_     0
 #define omparpack_  0
 #define propack_  0
-
+!
 !
 !  Simplistic type-agnostic LAPACK interface
 !
@@ -2629,7 +2629,7 @@ module diag
 !
       !external          BLACS_PINFO, BLACS_SETUP, BLACS_GET, &
       !                  BLACS_GRIDINIT, BLACS_GRIDINFO
-      !integer,parameter :: MPI_COMM_WORLD=0
+      integer,parameter :: MPI_COMM_WORLD=0
 !
  
 !     %---------------%

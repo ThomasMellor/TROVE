@@ -22,11 +22,13 @@ module plasma
   subroutine plasma_diag_dsytrdx(n,a,w,nroots,Ethres_)
     !
 #if (plasma_ > 0) 
-      INCLUDE "plasmaf.h"
-      integer(ik), parameter :: VEC = PlasmaVec
-      integer(ik), parameter :: UPLO = PlasmaLower
-      EXTERNAL PLASMA_DSYTRDX
-      INTEGER PLASMA_DSYTRDX
+    !  INCLUDE "plasmaf.h"
+      
+
+      integer(ik), parameter :: VEC = 0  !PlasmaVec
+      integer(ik), parameter :: UPLO = 0 !PlasmaLower
+      !EXTERNAL PLASMA_DSYTRDX
+      !INTEGER PLASMA_DSYTRDX
 #endif
     !
     integer         , intent(in)    :: n
@@ -42,6 +44,7 @@ module plasma
     !double precision,allocatable :: a(:,:),w(:),d(:)
     !
     double precision :: mat_elem,dot_product, Ethres
+    logical          :: Plasma_success
     real(rk) :: real_end,real_start,cpu_end,cpu_start,real_time,cpu_time
     !
     double precision q(1),d(1),e(1)
@@ -186,13 +189,13 @@ module plasma
     !
 #if (plasma_ > 0)
         !
-        call resetcore(corea,corec)
-        CALL PRINTARGS(VEC, UPLO, N, LDA, LDQ, COREA, COREB, COREC, NB, IB)
-        CALL SETPLASMAENV(COREA)
+        !call resetcore(corea,corec)
+        !CALL PRINTARGS(VEC, UPLO, N, LDA, LDQ, COREA, COREB, COREC, NB, IB)
+        !CALL SETPLASMAENV(COREA)
         !
         print*,'check args again'
         !
-        CALL PRINTARGS(VEC, UPLO, N, LDA, LDQ, COREA, COREB, COREC, NB, IB)
+        !CALL PRINTARGS(VEC, UPLO, N, LDA, LDQ, COREA, COREB, COREC, NB, IB)
         !
         INFO = PLASMA_DSYTRDX( VEC, UPLO, N, A, LDA, D, E, W, Q, LDQ, &
                                COREA, COREB, COREC, NB, IB,Ethres )
@@ -200,7 +203,7 @@ module plasma
           PRINT*,"PLASMA_DSYTRDX RETURNS ", INFO, " ABORTING!"
           STOP
         END IF
-        CALL USETPLASMAENV()
+        !CALL USETPLASMAENV()
         !
 #endif
     !

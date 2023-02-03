@@ -13,7 +13,7 @@
     use dipole, only: dm_tranint,dm_analysis_density
     use refinement, only : refinement_by_fit,external_expectation_values
     use tran, only : TRconvert_matel_j0_eigen,TRconvert_repres_J0_to_contr
-    !use extfield
+    use extfield
 
     implicit none
 
@@ -71,11 +71,11 @@
          !
          if (job%rotsym_do) call PT_conctracted_rotational_bset(j)
          !
-         !if (trim(intensity%action)=='FIELD_ME') then
-         !  call emf2_matelem
-         !else
+         if (trim(intensity%action)=='FIELD_ME') then
+           call emf_matelem
+         else
            call dm_tranint
-         !endif
+         endif
          !
          return
          !
@@ -136,6 +136,7 @@
       !       
       ! Here we initialize the PT elements, such as Nclasses, Nspecies, etc
       !
+      write(*,*) "test line 139" 
       call PTinit(NPTorder,Nmodes,Npolyads)
       !
       ! Analysis of the density 
@@ -153,6 +154,7 @@
       !
       ! Copy matrix elements from the FIELD to PT modules  
       !
+      write(*,*) "test line 157"
       call PTget_primitive_matelements(j) 
       !
       ! Restoring  the contracted basis set vectors from the check point: 
@@ -161,20 +163,25 @@
         !
         call PTcheck_point_contracted_space('READ') 
         !
+        write(*,*) "test line 166" 
       elseif (action%convert_vibme) then
         !
         call TRconvert_repres_J0_to_contr(j)
         !
+        write(*,*) "test line 171" 
       else
         !
         call PTcontracted_prediagonalization(j)
         !
+        write(*,*) "test line 176"
       endif 
       !
-      ! The rotational part of the contracted basis set to finish its constraction:
+      ! The rotational part of the contracted basis set to finish its construction:
       !
+      write(*,*) "test line 181"
       call PT_conctracted_rotational_bset(j)
       !
+      write(*,*) "test line 183"   
       call PTsymmetrization(j)
       !
       !if (trove%DVR) call PTDVR_contracted_bases(j)
@@ -183,6 +190,7 @@
       ! 
       ! Convert the J=0 basis set and mat.elements to the contracted represent. 
       !
+      write(*,*) "test line 192" 
       if (action%convert_vibme) then 
          call TRconvert_matel_j0_eigen(j)
          return 
@@ -199,7 +207,9 @@
         !
       else
         !
-        call PTcontracted_matelem_class(j)
+        !call PTcontracted_matelem_class(j)
+        !
+        call PTcontracted_matelem_class_basis_loops_outside(j)
         !
       endif
       !

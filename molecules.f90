@@ -1,4 +1,4 @@
-!
+
 !  This unit makes a bridge between different molecular types and the main program
 !
 module molecules
@@ -28,12 +28,19 @@ module molecules
   use pot_c2h4, only : ML_dipole_c2h4_4m_dummy,MLpoten_c2h4_88, MLpoten_c2h4_lee,MLpoten_c2h4_886666
   use pot_c2h6, only : MLpoten_c2h6_88,MLpoten_c2h6_88_cos3tau,MLpoten_c2h6_88_cos3tau_142536,&
                        MLpoten_c2h6_88_cos3tau_sym,MLpoten_c2h6_Duncan,&
-                       MLpoten_c2h6_88_cos3tau_G36
+                       MLpoten_c2h6_88_cos3tau_G36,ML_alpha_C2H6_zero_order
   use pot_c3h6, only : MLpoten_c3h6_harmtest,MLpoten_c3h6_sym_II
   !
-  use prop_xy2, only : prop_xy2_qmom_sym,MLdipole_h2o_lpt2011
+  use prop_xy2,      only : prop_xy2_qmom_sym,MLdipole_h2o_lpt2011
+  use prop_xy2_quad, only : prop_xy2_qmom_bisect_frame,TEST_xy2_qmom_bisect_frame
+  use prop_xy2_spinrot, only : prop_xy2_spin_rotation_bisector, prop_xy2_spin_rotation_bisector_nonlin, &
+                               TEST_prop_xy2_spin_rotation_bisector_nonlin, prop_xy2_gtensor_bisector,&
+                               prop_xy2_gtens_nuclear_bisector, prop_xy2_grot_electronic_bisector, &
+                               prop_xy2_gcor_electronic_bisector,prop_xy2_gtensor_bisector_rank3
+  use prop_xy2_spinspin, only : prop_xy2_spinspin_dipoleYY
   !
-  use kin_xy2, only  : MLkinetic_xy2_bisect_EKE,MLkinetic_xyz_bisect_EKE
+  use kin_xy2, only  : MLkinetic_xy2_bisect_EKE,MLkinetic_xyz_bisect_EKE,MLkinetic_xy2_bisect_EKE_sinrho,&
+                       MLkinetic_xy2_Radau_bisect_EKE,MLkinetic_xyz_bisect_EKE_sinrho
   !
   use pot_user, only : MLdipole,MLpoten,ML_MEP
   !
@@ -171,6 +178,14 @@ module molecules
     case('POTEN_H2CS_DAMP')
          !
          MLpotentialfunc => MLpoten_h2cs_damp
+         !
+    case('POTEN_H2CS_DAMP_SCALING')
+         !
+         MLpotentialfunc => MLpoten_h2cs_damp_scaling
+         !
+    case('POTEN_ZXY2_MORSE_COS')
+         !
+         MLpotentialfunc => MLpoten_zxy2_morse_cos
          !
     case('POTEN_ABCD') 
          !
@@ -430,13 +445,25 @@ end subroutine MLdefine_potenfunc
          !
          MLkineticfunc => MLkinetic_xy2_bisect_EKE
          !
+    case('KINETIC_XY2_EKE_RADAU_BISECT') 
+         !
+         MLkineticfunc => MLkinetic_xy2_Radau_bisect_EKE
+         !
+    case('KINETIC_XY2_EKE_BISECT_SINRHO') 
+         !
+         MLkineticfunc => MLkinetic_xy2_bisect_EKE_sinrho
+         !
     case('KINETIC_XYZ_EKE_BISECT') 
          !
          MLkineticfunc => MLkinetic_xyz_bisect_EKE
          !
+    case('KINETIC_XYZ_EKE_BISECT_SINRHO') 
+         !
+         MLkineticfunc => MLkinetic_xyz_bisect_EKE_sinrho
+         !
     case('GENERAL') 
          !
-         MLkineticfunc => MLkinetic_xyz_bisect_EKE
+         MLkineticfunc => MLkinetic_dummy
          !
     end select
     !
@@ -563,9 +590,57 @@ end function ML_MEPfunc
         !
         MLextF_func => MLdms2pqr_xyz_coeff
         !
+    case('DIPOLE_BISECT_S1S2T_XYZ')
+        !
+        MLextF_func => MLdipole_bisect_s1s2theta_xy2
+        !
     case('XY2_QMOM_SYM')
         !
         MLextF_func => prop_xy2_qmom_sym
+        !
+    case('XY2_QMOM_BISECT_FRAME')
+        !
+        MLextF_func => prop_xy2_qmom_bisect_frame
+        !
+    case('TEST_XY2_QMOM_BISECT_FRAME')
+        !
+        MLextF_func => TEST_xy2_qmom_bisect_frame
+        !
+    case('XY2_SR-BISECT-NONLIN')
+        !
+        MLextF_func => prop_xy2_spin_rotation_bisector_nonlin
+        !
+    case('TEST_XY2_SR-BISECT-NONLIN')
+        !
+        MLextF_func => TEST_prop_xy2_spin_rotation_bisector_nonlin
+        !
+    case('XY2_SR-BISECT')
+        !
+        MLextF_func =>  prop_xy2_spin_rotation_bisector
+        !
+    case('XY2_SS_DIPOLE_YY')
+        !
+        MLextF_func =>  prop_xy2_spinspin_dipoleYY
+        !
+    case('XY2_G-BISECT')
+        !
+        MLextF_func =>  prop_xy2_gtensor_bisector
+        !
+    case('XY2_G-ROT-ELEC')
+        !
+        MLextF_func =>  prop_xy2_grot_electronic_bisector
+        !
+    case('XY2_G-COR-ELEC')
+        !
+        MLextF_func =>  prop_xy2_gcor_electronic_bisector
+        !
+    case('XY2_G-TENS-RANK3')
+        !
+        MLextF_func =>  prop_xy2_gtensor_bisector_rank3
+        !
+    case('XY2_G-TENS-NUC')
+        !
+        MLextF_func =>  prop_xy2_gtens_nuclear_bisector
         !
     case('XY3_MB')
         !
@@ -642,6 +717,10 @@ end function ML_MEPfunc
     case('DIPOLE_C2H4_4M') 
        !
        MLextF_func => ML_dipole_c2h4_4m_dummy  ! dummy dipole does not work
+       !
+    case('ALPHA_C2H6_ZERO') 
+       !
+       MLextF_func => ML_alpha_C2H6_zero_order  ! alpha polarizablity of a zero order type 
        !
     case('DIPOLE','USER','GENERAL','DIPOLE_USER')
        !
@@ -3190,9 +3269,9 @@ end subroutine polintark
    integer(ik),intent(in) :: itype
    integer(ik),intent(in) :: imode
    integer(ik),optional   :: iorder
-   integer(ik)            :: i
+   integer(ik)            :: i 
    real(ark)              :: rhoe,v,amorse
-   real                   :: y,z 
+   real(ark)              :: y,z
      !
      if (verbose>=6) write(out,"(/'MLcoord_direct/start')") 
      !
@@ -3223,6 +3302,10 @@ end subroutine polintark
      case('1-COSX') 
         !
         v = 1.0_ark-cos(x)
+        !
+     case('1-COS6X')
+        !   
+        v = 1.0_ark - cos(6.0_ark*x)
         !
      case('SINX') 
         !
@@ -3270,18 +3353,19 @@ end subroutine polintark
         !
         v = x
         !
-     case('BOND-LENGTH', 'ANGLE', 'DIHEDRAL', 'AUTOMATIC')
+     case('BOND-LENGTH', 'ANGLE', 'DIHEDRAL', 'AUTOMATIC', 'AUTO-HARMON')
         !
         v = x
         !
      end select
      !
      if (present(iorder)) then 
+       !
        select case(trim(molec%coordinates(itype,imode)))
           !
        case default
           !
-          v = v**iorder 
+          v = v**iorder
           !
        case('RATIONAL') 
           !
@@ -3306,20 +3390,30 @@ end subroutine polintark
             v = x**(iorder-2)
             !
           end select 
-        case('AUTOMATIC')
-           if(iorder < 0) stop 'MLcoord_direct error: negative iorder'
-           v = 1.0_ark
-           if(iorder == 0)  return
-           if(iorder > size(molec%basic_function_list(imode)%mode_set(:)))return 
-           y = 1.0_ark
-           do i = 1, molec%basic_function_list(imode)%mode_set(iorder)%num_terms
-              !
-              z = molec%basic_function_list(imode)%mode_set(iorder)%func_set(i)%coeff*(molec%local_eq(imode)+x)**molec%basic_function_list(imode)%mode_set(iorder)%func_set(i)%inner_expon
-              call molec%basic_function_list(imode)%mode_set(iorder)%func_set(i)%func_pointer(z, y)
-              v = v*y**molec%basic_function_list(imode)%mode_set(iorder)%func_set(i)%outer_expon
-          end do
-       case('BOND-LENGTH')
-          if(iorder < 0) stop 'MLcoord_direct error: negative iorder'
+          !
+       case('AUTOMATIC', 'AUTO-HARMON')
+         if(itype == 2) then
+           v = v**iorder 
+           return
+         endif 
+         if(iorder < 0) stop 'MLcoord_direct error: negative iorder'
+         v = 1.0_ark
+         if(iorder == 0)  return
+         if(iorder > size(molec%basic_function_list(imode)%mode_set(:))) return 
+         y = 1.0_ark
+         do i = 1, molec%basic_function_list(imode)%mode_set(iorder)%num_terms
+           !
+           z = molec%basic_function_list(imode)%mode_set(iorder)%func_set(i)%coeff*(molec%local_eq_transformed(imode)+x)**molec%basic_function_list(imode)%mode_set(iorder)%func_set(i)%inner_expon
+           call molec%basic_function_list(imode)%mode_set(iorder)%func_set(i)%func_pointer(z, y)
+           v = v*y**molec%basic_function_list(imode)%mode_set(iorder)%func_set(i)%outer_expon
+       end do      
+       !
+        case('BOND-LENGTH')
+          !
+          if (iorder < 0) then
+            print*,'MLcoord_direct error: negative iorder'
+            stop 'MLcoord_direct error: negative iorder'
+          endif
           !
           select case(iorder)
             !
@@ -3340,9 +3434,14 @@ end subroutine polintark
               v = 1.0_ark
               !
           end select 
-        case('ANGLE')
-           if(iorder < 0) stop 'MLcoord_direct error: negative iorder'
           !
+        case('ANGLE')
+           !
+           if(iorder < 0) then 
+              print*, 'MLcoord_direct error: negative iorder'
+              stop 'MLcoord_direct error: negative iorder'
+           endif
+           !
           select case(iorder)
             !
             case(0)          
@@ -3382,48 +3481,52 @@ end subroutine polintark
               v = 1.0_ark
               !
            end select
+           !
         case('DIHEDRAL')
-          if(iorder < 0) stop 'MLcoord_direct error: negative order'
-          !
-          select case(iorder) 
-          !
-            case(0)
+           !
+           if(iorder < 0) then 
+              print*, 'MLcoord_direct error: negative iorder'
+              stop 'MLcoord_direct error: negative iorder'
+           endif
+            !
+           select case(iorder) 
+            !
+           case(0)
               !
               v = 1.0_ark
               !
-            case(1)
+           case(1)
               !
-              v = Cos((molec%local_eq(imode) +x)/2)
+              v = Cos((molec%local_eq(imode) +x)/2.0_ark)
               !
-            case(2)
+           case(2)
               !
-              v = Sin((molec%local_eq(imode) +x)/2)
+              v = Sin((molec%local_eq(imode) +x)/2.0_ark)
               !
             case(3)
               !
-              v = Cos((molec%local_eq(imode) +x)/2)**2
+              v = Cos((molec%local_eq(imode) +x)/2.0_ark)**2
               !
             case(4)
               !
-              v = Cos((molec%local_eq(imode) + x)/2)*Sin((molec%local_eq(imode)+x)/2)
+              v = Cos((molec%local_eq(imode) + x)/2.0_ark)*Sin((molec%local_eq(imode)+x)/2.0_ark)
               !
             case(5)
               !
-              v = Sin((molec%local_eq(imode) + x)/2)**2
+              v = Sin((molec%local_eq(imode) + x)/2.0_ark)**2
               !
             case default
               !
               v = 1.0_ark
               !
-          end select 
-          write(*,*) "iorder = ", iorder, "imode = ", imode 
-          write(*,*) "v = ", v
+          end select
+          !
        end select
        !
      endif 
      !
      if (verbose>=6) write(out,"('MLcoord_direct/end')") 
- 
+     !
  end function MLcoord_direct
 
   !
@@ -3581,6 +3684,18 @@ end subroutine polintark
         endif 
         !
         chi =acos( 1.0_ark-xi(imode) )
+        !
+     case('1-COS6X') 
+        !
+        if (xi(imode)<-0.1_ark) then 
+            !
+            write (out,"('MLcoord_invert: 1-cos x <0: ',f18.8)") xi(imode)
+            write (out,"('Consider change difftype ')")
+            stop 'MLcoord_invert - bad 1- cos x'
+            !
+        endif 
+        !
+        chi =acos( 1.0_ark-xi(imode) )/6.0_ark
         !
      case('COSTAU2') 
         !
@@ -3763,20 +3878,19 @@ end subroutine polintark
         !
      case('BOND-LENGTH', 'ANGLE', 'DIHEDRAL')
         !
-        write(out, "('ML_check_steps4coordinvert ','a', 'not applicable')")  trim(molec%coordinates(itype,imode))
+        write(out, "('ML_check_steps4coordinvert (BLAD) ','a', 'not applicable')")  trim(molec%coordinates(itype,imode))
         stop 'ML_check_steps4coordinvert - bad coordinate-type'
+        !
     end select 
-
+    !
     if (fstep(1)+fstep(2)==0.0_ark) then 
        write (out,"('ML_check_steps4coordinvert: no numerical derivatives allowed around point ',f18.8)") xi(imode)
        write (out,"('imode -  ',i8)") imode
        stop 'ML_check_steps4coordinvert - bad point for derivatives'
     endif
-
-   
-   if (verbose>=6) write(out,"('ML_check_steps4coordinvert/end')") 
-   
-    
+    !
+    if (verbose>=6) write(out,"('ML_check_steps4coordinvert/end')") 
+    !    
  end subroutine ML_check_steps4coordinvert
 
 

@@ -19,7 +19,7 @@ module tran
  private
  public read_contrind,read_eigenval, TReigenvec_unit, bset_contrT, & 
         bset_contr,eigen, index_correlation,Neigenlevels, &
-        TRconvert_matel_j0_eigen,TRconvert_repres_J0_to_contr,istate2ilevel
+        TRconvert_matel_j0_eigen,TRconvert_repres_J0_to_contr,istate2ilevel,TReigenvec_unit_external
 
  type bset_contrT
     integer(ik)                 :: jval            ! rotational quantum number that correspond to the contr. basis set
@@ -579,7 +579,16 @@ contains
           !
           read(iounit,*) nroots_t,nsize
           !
+          ! The size of the basis for any Js is required for predicting the state ID as part of the ExoMol basis 
           bset_contr(jind)%nsize_base(gamma) = nsize_base + bset_contr(1)%Maxcontracts*jval(jind)**2
+          !
+          ! trove%lincoord is a special case of a linear molecules where the basis set does not increase with J
+          ! because a contraint on K=L and the total size increases with J linearaly 
+          if ((job%lincoord/=0).or.(job%triatom_sing_resolve)) then
+            !if (jind>1) then 
+              bset_contr(jind)%nsize_base(gamma) = nsize_base + bset_contr(1)%Maxcontracts*jval(jind)*sym%Nrepresen
+            !endif
+          endif 
           !
           nsize_base = nsize_base + nsize
           !
@@ -693,11 +702,13 @@ contains
     do ilevel = 1,Neigenlevels
       !
       allocate(eigen(ilevel)%irec(maxdeg),eigen(ilevel)%iroot(maxdeg),eigen(ilevel)%quanta(0:nmodes),&
-               eigen(ilevel)%normal(0:nmodes),eigen(ilevel)%cgamma(0:nclasses), stat = info)
+               eigen(ilevel)%normal(0:nmodes),eigen(ilevel)%cgamma(0:nclasses), &
+               eigen(ilevel)%cnu(1:nclasses), stat = info)
       if (info /= 0) stop 'read_eigenval allocation error: eigen%irec, eigen%quanta - out of memory'
       eigen(ilevel)%ndeg   = 0
       eigen(ilevel)%iroot = 0
       eigen(ilevel)%quanta = 0
+      eigen(ilevel)%cnu = 0
       !
     enddo
     !
@@ -824,9 +835,9 @@ contains
                !
                write(out,my_fmt) & 
                ID_,energy-intensity%ZPE,int(intensity%gns(gamma),4)*(2*J_+1),J_,sym%label(gamma),&
-               normal(1:nmodes),sym%label(isym(1:nclasses)),&
+               quanta(1:nmodes),sym%label(isym(1:nclasses)),&
                ktau_rot(quanta(0),1),ktau_rot(quanta(0),2),sym%label(isym(0)),&
-               largest_coeff,grep,ilevel,quanta(1:nmodes),cnu(1:Nclasses)
+               largest_coeff,grep,ilevel,normal(1:nmodes),cnu(1:Nclasses)
                !
              endif
              !
@@ -876,6 +887,7 @@ contains
                   eigen(nlevels)%cgamma(:)  = sym%label(isym(:))
                   eigen(nlevels)%icoeff     = ilarge_coef
                   eigen(nlevels)%largest_coeff = largest_coeff
+                  eigen(nlevels)%cnu(:)     = cnu(:)
                   !
                 endif 
                 !
@@ -1144,6 +1156,65 @@ contains
  end function TReigenvec_unit
 
 
+ function TReigenvec_unit_external(jind,jval,igamma)
+
+ !open a file with eigenfunctions produced externally
+
+    integer(ik), intent(in)          :: jind,jval(:)
+    integer(ik), intent(in) :: igamma
+    !
+    integer(ik)             :: TReigenvec_unit
+    !
+    integer(ik)             :: kind,ilevel,jlevel, ncontr, iounit, info, reclen, irec
+    !
+    real(rk), pointer       :: vec1(:),vec2(:)
+    real(rk)                :: f_t
+    !
+    character(4)            :: jchar,gchar = 'xxxx'
+    character(cl)           :: filename
+    character(cl)           :: ioname
+    logical                 :: exists,hasopened
+    !
+    call iostart(trim(ioname), iounit)
+    !
+    TReigenvec_unit_external = iounit
+    !
+    write(jchar, '(i4)') jval(jind)
+    write(gchar, '(i3)') igamma
+    !
+    !filename = trim(job%eigenfile%filebase)//'_vectors'//trim(adjustl(jchar))//'_'//trim(adjustl(gchar))//'.chk'
+    !if (job%IOvector_symm) 
+    !
+    filename = "external"//'_vectors'//trim(adjustl(jchar))//'_'//trim(adjustl(gchar))//'.chk'
+    !
+    inquire (file = filename, exist = exists)
+    if (.not.exists) then 
+      write (out,"('TReigenvec_unit: Cannot find file for j= ',i3,4x,a)") jval(jind),filename
+      stop 'TReigenvec_unit: file with eigenvectors does not exist' 
+    endif 
+    !
+    inquire (unit = iounit, opened = hasopened)
+    !
+    if (hasopened) return
+    ncontr = max(bset_contr(jind)%nsize(igamma),1)
+    !
+    inquire(iolength = reclen) f_t
+    reclen = ncontr*reclen
+    !
+    open(unit = iounit, access = 'direct', recl = reclen, action='read',status='old' , file = filename,err=22)
+    !
+    return
+    !
+    22 continue
+    !
+    write (out,"('TReigenvec_unit_external: Error opening  eigenvectors-file for j= ',i4,a)") jval(jind),filename
+    stop 'TReigenvec_unit_external: Error opening  eigenvectors-file' 
+    !
+    !
+ end function TReigenvec_unit_external
+
+
+
  subroutine TRconvert_repres_J0_to_contr(Jrot)
     !
     implicit none
@@ -1251,6 +1322,9 @@ contains
                     ' at least one must be set to CONVERT or EIGENfunc SAVE CONVERT'
           stop 'TRconvert_matel_j0_eigen: illegal MATELEM or EXTMATELEM <> CONVERT'
       end if
+      !
+      ! restore the status if IOmatelem_split if it was changed at previous stages:
+      if (job%IOmatelem_split_changed) job%IOmatelem_split = .not.job%IOmatelem_split
       !
       matsize  = int(Neigenroots*(Neigenroots+1)/2,hik)
       matsize2 = int(Neigenroots*Neigenroots,hik)
@@ -1734,6 +1808,21 @@ contains
           !enddo
           !!$omp end parallel do
           !
+          if (job%verbose>=6) then 
+            !
+            ! printout extF matrix elements
+            !
+            do iroot=1,Neigenroots
+              do jroot=1,iroot
+                !
+                if (abs(mat_s(iroot,jroot))>job%coeff_thresh) then
+                  write(out,"(i4,1x,2(i8,1x),g18.11,2x,a2)") imu,iroot,jroot,mat_s(iroot,jroot),"||"
+                endif
+                !
+              enddo
+            enddo
+            !
+          endif
           !
           if (.not.job%IOextF_divide.or.job%IOextF_stitch) then
             !
